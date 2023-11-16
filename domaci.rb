@@ -22,6 +22,7 @@ def make_method_name(s)
 end
 
 class Tabela
+  attr :skipping
   def initialize(worksheet, x, y)
     @w = worksheet
     @x = x + 1
@@ -30,6 +31,13 @@ class Tabela
     @hh = @w.num_rows - x
     @ww = @w.num_cols - y + 1
     @nheaders = @header.map {|x| make_method_name(x)}
+    @skipping = (0..@hh-1).find_all do |i|
+      r = @w.rows[i + x]
+      r.all?("") or r.any? do |s|
+        s.downcase!
+        s.include?("total")
+      end
+    end
   end
 
   class Red
@@ -62,10 +70,11 @@ class Tabela
   end
 
   class Kolona
-    def initialize(t, j, hh)
+    def initialize(t, j, hh, skipping)
       @t = t
       @j = j
       @hh = hh
+      @skipping = skipping
       @ncells = self.map {|x| make_method_name(x)}
     end
 
@@ -82,7 +91,7 @@ class Tabela
 
     def each()
       if block_given?
-        (0 .. @hh-1).each do |i|
+        (0 .. @hh-@skipping.size-1).each do |i|
           yield @t[i, @j]
         end
       else
@@ -108,14 +117,21 @@ class Tabela
     end
 
     def avg()
-      self.sum() / @hh
+      self.sum() / (@hh - @skipping.size)
     end
   end
 
   def [] (i, *args)
     if args.size == 0
-      Kolona.new(self, @header.find_index(i), @hh)
+      Kolona.new(self, @header.find_index(i), @hh, @skipping)
     elsif args.size == 1
+      @skipping.each do |x|
+        if x <= i
+          i += 1
+        else
+          break
+        end
+      end
       @w[i + @x, args[0] + @y]
     else
       raise RuntimeError
@@ -135,7 +151,7 @@ class Tabela
 
   def each()
     if block_given?
-      (0 .. @hh-1).each do |i|
+      (0 .. @hh-@skipping.size-1).each do |i|
         (0 .. @ww-1).each do |j|
           yield self[i, j]
         end
@@ -149,7 +165,7 @@ class Tabela
     j = @nheaders.find_index(name.to_s.downcase)
     if j
       if args.size == 0
-        Kolona.new(self, j, @hh)
+        Kolona.new(self, j, @hh, @skipping)
       else
         raise RuntimeError, "unexpected arguments"
       end
